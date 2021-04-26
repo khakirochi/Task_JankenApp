@@ -1,148 +1,258 @@
 require 'set'
 
-class Game
-  #ゲームモード :jnk(ジャンケン), :aho(あっち向いてホイ)
-  attr_accessor :mode
-  #勝者 :player(自分), :opponent(相手), :even(引き分け)
-  attr_reader   :winner
+module HandType
+  ROCK     = 0
+  PAPER    = 1
+  SCISSORS = 2
+end
 
-  HANDSHAPE  = ["グー", "チョキ", "パー"]
-  DIRECTION  = ["上", "下", "左", "右"]
+module Direction
+  UP    = 0
+  DOWN  = 1
+  LEFT  = 2 
+  RIGHT = 3
+end
+
+class JankenGamePlayer 
+  include Comparable
+  include HandType
+
+  attr_accessor :is_winner
+  attr_accessor :input
 
   def initialize
-    @mode        = :jnk
-    @palyer_in   = nil
-    @opponent_in = nil
-    @winner = nil
+    @is_winner = false
+    @input = nil
   end
 
-  #対戦(ジャンケン/あっち向いてホイ)を1回実行する
-  def play
-    print_start_message
-    set_in
+  def <=>(other)
+    players = [self, other]
+    inputs = players.map(&:input)
 
-    if @mode.equal?(:jnk) && @palyer_in == 3 then exit end
-    
-    print_shout
-    judge
-    print_result
-  end
-
-  #自分と相手の入力を設定する．
-  def set_in
-    palyer_in_raw = gets.chomp
-    until palyer_in_raw.match(/^[0-3]$/)
-      puts "** 0,1,2,3のいずれかを指定してください **"
-      palyer_in_raw = gets.chomp
-    end
-    
-    @palyer_in = palyer_in_raw.to_i
-
-    @opponent_in = 
-      case mode 
-      when :jnk then rand(0..2)
-      when :aho then rand(0..3)
-      else nil
-      end
-  end
-
-  #勝者の判定を行い，@winnerを更新する．
-  def judge
-    if @mode.equal?(:jnk)
-      inputs = {player: @palyer_in, opponent: @opponent_in}
-      if inputs.values.uniq.length == 2
-        case inputs.values.to_set
-        when Set[0,1] then @winner = inputs.key(0)  #0:グー,    1:チョキ
-        when Set[1,2] then @winner = inputs.key(1)  #1:チョキ,  2:パー
-        when Set[2,0] then @winner = inputs.key(2)  #2:パー,    0:グー
-        else @winner = nil
+    if inputs.any?(&:nil?)
+      nil
+    else
+      if inputs.uniq.length==2
+        case inputs.to_set
+        when Set[HandType::ROCK,     HandType::SCISSORS] then self.input  - other.input  #0:グー,    1:チョキ
+        when Set[HandType::SCISSORS, HandType::PAPER]    then other.input - self.input   #1:チョキ,  2:パー
+        when Set[HandType::PAPER,    HandType::ROCK]     then other.input - self.input   #2:パー,    0:グー
+        else nil
         end
       else
-        @winner = :even
-      end
-    end
-
-    if @mode.equal?(:aho)
-      if @palyer_in != @opponent_in
-        @winner = nil
+        0 #あいこ
       end
     end
   end
+end
 
-  #対戦開始時のメッセージを表示する．
+class Game
+  attr_accessor  :players
+
+  def play
+    preprocess
+    shout
+    postprocess
+  end
+
+  def reset_inputs
+    @players.map{|p|p.input = nil}
+  end
+  
+  def ask_input_0_3
+    input_raw = gets.chomp
+    until input_raw.match(/^[0-3]$/)
+      puts "** 0,1,2,3のいずれかを指定してください **"
+      input_raw = gets.chomp
+    end
+    input_raw.to_i
+  end
+
+  def generate_input(auto=false)
+    raise NotImplementedError
+  end
+
   def print_start_message
-    if @mode.equal?(:jnk)
-      if @winner.equal?(:even)
-        puts "あいこで..."
-      else
-        puts "じゃんけん..."
-      end
-      puts "0(#{HANDSHAPE[0]}) 1(#{HANDSHAPE[1]}) 2(#{HANDSHAPE[2]}) 3(戦わない) "
-    end
+    raise NotImplementedError
+  end
 
-    if @mode.equal?(:aho)
-      puts "あっち向いて〜"
-      puts "0(#{DIRECTION[0]}) 1(#{DIRECTION[1]}) 2(#{DIRECTION[2]}) 3(#{DIRECTION[3]})"
+  def preprocess
+    raise NotImplementedError
+  end
+
+  def print_shout
+    raise NotImplementedError
+  end
+
+  def postprocess
+    raise NotImplementedError
+  end
+
+  def print_result
+    raise NotImplementedError
+  end
+
+end
+
+class JankenGame < Game
+  include HandType
+  HANDTYPE_NAMES = {ROCK:"グー", PAPER:"チョキ", SCISSORS:"パー"}
+
+  attr_reader :SHOUT_MESSAGE
+
+  def generate_input(auto=false)
+    if auto
+      rand(0..2)
+    else
+      ask_input_0_3
     end
   end
 
+  def print_start_message
+    if @players.map(&:input).any?(&:nil?)
+      puts "じゃんけん..."
+      @SHOUT_MESSAGE = "ホイ"
+    else
+      puts "あいこで..."
+      @SHOUT_MESSAGE = "ショ"
+    end
 
-  #対戦結果を表示する．
+    choises = HandType.constants.map{|key|HANDTYPE_NAMES[key]} << "戦わない"
+    puts choises.each.with_index.inject(""){|res, (val, idx)| res + "#{idx}(#{val}) "}
+  end
+
+  def preprocess
+    if players[0].input == 3 then exit end
+  end
+
+  def shout
+    puts @SHOUT_MESSAGE
+  end
+
+  def postprocess
+    @players[0].is_winner = (@players[0] > @players[1])
+    @players[1].is_winner = (@players[0] < @players[1])
+  end
+
   def print_result
     puts "--------------------------------------"
-    if @mode.equal?(:jnk)
-      puts "あなた  : #{(0..2).include?(@palyer_in) ? HANDSHAPE[@palyer_in] : "?"}を出しました"
-      puts "相手　  : #{HANDSHAPE[@opponent_in]}を出しました"
-    end
-    if @mode.equal?(:aho)
-      puts "あなた  : #{(0..3).include?(@palyer_in) ? DIRECTION[@palyer_in] : "?"}"
-      puts "相手　  : #{DIRECTION[@opponent_in]}"
-    end
-    puts "--------------------------------------"
+    puts "あなた  : #{HANDTYPE_NAMES[HandType.constants[players[0].input]]}を出しました"
+    puts "相手　  : #{HANDTYPE_NAMES[HandType.constants[players[1].input]]}を出しました"
+  puts "--------------------------------------"
   end
-
-  #対戦実行時の掛け声を表示する．
-  def print_shout
-    if @winner.equal?(:even)
-      puts "ショ！"
-    else
-      puts "ホイ！"
-    end
-  end
-
-  #勝者を表示する．
-  def print_winner
-    case @winner
-    when :player   then puts "あなたの勝ちです．"
-    when :opponent then puts "相手の勝ちです．"
-    else put "(勝者不明です)" 
-    end
-  end
-
 end
+
+class AhoiGame < Game
+    include Direction
+    
+    attr_reader :SHOUT_MESSAGE
+    DIRECTION_NAMES = {UP:"上", DOWN:"下", LEFT:"左", RIGHT:"右"}
+    
+    def generate_input(auto=false)
+      if auto
+        rand(0..3)
+      else
+        ask_input_0_3
+      end
+    end
+  
+    def print_start_message
+      puts "あっち向いて〜"
+      @SHOUT_MESSAGE = "ホイ"
+
+      choises = Direction.constants.map{|key|DIRECTION_NAMES[key]}
+      puts choises.each.with_index.inject(""){|res, (val, idx)| res + "#{idx}(#{val}) "}
+    end
+  
+    def preprocess
+      #nop
+    end
+  
+    def shout
+      puts @SHOUT_MESSAGE
+    end
+  
+    def postprocess
+      inputs = @players.map(&:input)
+      if inputs.uniq.length != 1
+        @players.map{|p|p.is_winner = false}
+      end
+    end
+  
+    def print_result
+      puts "--------------------------------------"
+      puts "あなた  : #{DIRECTION_NAMES[Direction.constants[players[0].input]]}"
+      puts "相手　  : #{DIRECTION_NAMES[Direction.constants[players[1].input]]}"
+    puts "--------------------------------------"
+    end
+end
+
+
 
 #main
-game = Game.new
 
-while game.winner.nil?
-  #ジャンケンを1回実行
-  game.mode = :jnk
-  game.play   #expected winner: player/opponent/even.
+#games
+jg = JankenGame.new
+ag = AhoiGame.new
 
-  #ジャンケンの勝負がつかない場合，勝負が着くまでジャンケンを実行
-  while game.winner.equal?(:even) || game.winner.nil?
-    game.play
+#players
+p0 = JankenGamePlayer.new  # your player
+p1 = JankenGamePlayer.new  # opponent player
+
+#set game players
+players = [p0, p1]
+jg.players = ag.players = players
+
+#do 
+until players.map(&:is_winner).any?
+  #reset players' inputs
+  p0.input, p1.input = nil, nil
+
+  until players.map(&:is_winner).any?
+    jg.print_start_message
+
+    p0.input = jg.generate_input(auto=false)
+    p1.input = jg.generate_input(auto=true)
+
+    puts "p0.input = #{p0.input}"
+    puts "p1.input = #{p1.input}"
+    puts "p0<=>p1 = #{p0<=>p1}"
+    
+    jg.play
+    
+    jg.print_result
   end
 
-  #あっち向いてホイを実行
-  game.mode = :aho
-  game.play  #expected winner:  player/opponent/nil.
+  puts "p0.is_winner = #{p0.is_winner}"
+  puts "p1.is_winner = #{p1.is_winner}"
+
+  ag.print_start_message
+
+  finger_direction, face_direction = nil, nil
+  if p0 > p1
+    finger_direction = ag.generate_input(auto=false)
+    face_direction   = ag.generate_input(auto=true)
+
+    p0.input = finger_direction
+    p1.input = face_direction
+  elsif p0 < p1
+    finger_direction = ag.generate_input(auto=true)
+    face_direction   = ag.generate_input(auto=false)
+
+    p0.input = face_direction
+    p1.input = finger_direction
+  end
+
+  ag.play
+  ag.print_result
+
 end
 
-#最終的な勝者を表示
-game.print_winner
-
-
-
-
+if p0.is_winner && !p1.is_winner
+  puts "あなたの勝ちです"
+elsif !p0.is_winner && p1.is_winner
+  puts "相手の勝ちです"
+else
+  puts "(勝者不明です)"
+end
 
